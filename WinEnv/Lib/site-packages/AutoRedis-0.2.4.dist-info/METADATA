@@ -1,0 +1,32 @@
+Metadata-Version: 2.0
+Name: AutoRedis
+Version: 0.2.4
+Summary: AutoRedis - Balance your Redis commands accross your master/slaves
+Home-page: https://github.com/evadot/AutoRedis
+Author: Emmanuel Vadot
+Author-email: manu@bidouilliste.com
+License: MIT
+Keywords: redis hiredis autoredis
+Platform: UNKNOWN
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Topic :: Database :: Front-Ends
+Classifier: Programming Language :: Python :: 2
+Classifier: Programming Language :: Python :: 2.7
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.3
+Classifier: Programming Language :: Python :: 3.4
+Requires-Dist: redis
+
+AutoRedis
+=========
+
+AutoRedis execute the redis command on the appropriate server (master of slave) depending on if the commands writes data or not.
+
+If the command write data (like set) it will be automatically done on the master.
+
+If the command reads data (like get) it will be automatically done on one of the slave with a fallback on the master if no slaves are up or configured.
+
+See the examples directory for complete examples.
+
+
