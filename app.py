@@ -1,5 +1,4 @@
 from autoredis import AutoRedis
-from functools import wraps
 import sys
 import discord
 import asyncio
@@ -16,60 +15,67 @@ g = dict()
 
 
 TOKEN = 'NTE0ODc1MDE0NzU2MTcxNzc4.Dtc6eQ.wXWKicjAC3o_sZN76C7LLbQxKws'
+BNET_APIKEY = '76t29cs8yr7jvfaqwyz7683vq7u6fsup'
+LOCALE='fr_FR'
+
+REGION = 1
+SERVER = 2
+GUILDNAME = 3
 
 client = discord.Client()
 
 
-def database_open():
-    try:
-        g['redis'] = AutoRedis(('127.0.0.1', 6379),
-                               password=None,
-                               db=2,
-                               decode_responses=True)
-    except (ConnectionError, KeyError):
-        return False
-
-    return True
-
-
-def database_required(func):
-    @wraps(func)
-    def decorated_func(*args, **kwargs):
-        if database_open() is False:
-            print("Can't connect to REDIS Server.")
-            sys.exit(1)
-        return func(*args, **kwargs)
-    return decorated_func
+try:
+    g['redis'] = AutoRedis(('127.0.0.1', 6379),
+                           password=None,
+                           db=2,
+                           decode_responses=True)
+except (ConnectionError, KeyError):
+    print('Error Database')
+    sys.exit(-1)
 
 
 def get_new_members(json):
-    # TODO parser la requests pour avoir la liste des membres.
-    return ['test', 'test2']
+    result = []
+    for member in json['members']:
+        result.append(member['character']['name'])
+    return result
 
 
-@database_required
 async def refresh_guilds():
     await client.wait_until_ready()
-    list = g['redis'].smembers('guilds')
-    msg = str()
-    for guild in list:
-        old_members = g['redis'].smembers('{}:members'.format(guild))
-        req = requests.get('')
-        if req.status_code != 200:
-            continue
-        new_members = get_new_members(req.json())
-        for member in old_members:
-            if member not in new_members:
-                msg = msg + '{} left {}\n'.format(member, guild.split(':')[3])
-        g['redis'].delete('{}:members'.format(guild))
-        for member in new_members:
-            if member not in old_members:
-                msg = msg + '{} join {}\n'.format(member, guild.split(':')[3])
-            g['redis'].sadd('{}:members'.format(guild), member)
-
-    channel = discord.Object(id='guild_infos')
     while not client.is_closed:
-        await client.send_message(channel, msg)
+        print("Refreshing guilds....")
+        list = g['redis'].smembers('guilds')
+        channel = discord.Object(id='516605516701630464')
+        msg = ''
+        for guild in list:
+            url = 'https://{}.api.battle.net/wow/guild/{}/{}?fields=members&locale={}&apikey={}'.format(
+                guild.split(':')[REGION],
+                guild.split(':')[SERVER],
+                guild.split(':')[GUILDNAME],
+                LOCALE,
+                BNET_APIKEY
+            )
+            old_members = g['redis'].smembers('{}:members'.format(guild))
+            req = requests.get(url)
+            if req.status_code != 200:
+                continue
+            new_members = get_new_members(req.json())
+            for member in old_members:
+                if member not in new_members:
+                    msg = msg + '{} left {}\n'.format(member, guild.split(':')[3])
+                    g['redis'].sadd('leavers', member)
+            g['redis'].delete('{}:members'.format(guild))
+            for member in new_members:
+                if member not in old_members:
+                    msg = msg + '{} joined {}\n'.format(member, guild.split(':')[3])
+                    g['redis'].srem('leavers', member)
+                g['redis'].sadd('{}:members'.format(guild), member)
+
+        print("Refreshing Done.")
+        if msg != '':
+            await client.send_message(channel, msg)
         await asyncio.sleep(300)
 
 
@@ -85,18 +91,16 @@ async def on_message(message):
         await client.send_message(message.channel, msg)
 
     if message.content.startswith('!register'):
-        msg = "Register works"
-        args = message.content.split(' ')
+        args = message.content.upper().split(' ', 3)
         if len(args) != 4:
             await client.send_message(message.channel, 'Usage: !register <region> <server> <guildName>')
         if register_guild(args[1], args[2], args[3]):
             await client.send_message(message.channel, "Guild registered.")
         else:
-            await client.send_message(message.channel, "Guild not exist.")
+            await client.send_message(message.channel, "Guild not exist or already registered.")
 
     if message.content.startswith('!unregister'):
-        msg = "Register works"
-        args = message.content.split(' ')
+        args = message.content.upper().split(' ', 3)
         if len(args) != 4:
             await client.send_message(message.channel, 'Usage: !unregister <region> <server> <guildName>')
         if register_guild(args[1], args[2], args[3]):
@@ -105,18 +109,37 @@ async def on_message(message):
             await client.send_message(message.channel, "Guild not exist in database.")
     if message.content.startswith('!help'):
         await client.send_message(message.channel, USAGE_MSG)
+    if message.content.startswith('!leavers'):
+        leavers = g['redis'].smembers('leavers')
+        if leavers:
+            await client.send_message(message.channel, leavers)
+        else:
+            await client.send_message(message.channel, "No leavers at the moments")
 
 
-@database_required
 def register_guild(region, server, guildname):
-    g['redis'].sadd('guilds', 'guild:{};{};{}'.format(region, server, guildname))
-    g['redis'].sadd('guild:{};{};{}:members'.format(region, server, guildname), 'members')
-    return False
+    if g['redis'].exists('guild:{}:{}:{}:members'.format(region, server, guildname)):
+        g['redis'].sadd('guilds', 'guild:{}:{}:{}'.format(region, server, guildname))
+        return True
+    url = 'https://{}.api.battle.net/wow/guild/{}/{}?fields=members&locale={}&apikey={}'.format(
+        region,
+        server,
+        guildname,
+        LOCALE,
+        BNET_APIKEY
+    )
+    rq = requests.get(url)
+    if rq.status_code != 200:
+        return False
+    members = get_new_members(rq.json())
+    g['redis'].sadd('guilds', 'guild:{}:{}:{}'.format(region, server, guildname))
+    for member in members:
+        g['redis'].sadd('guild:{}:{}:{}:members'.format(region, server, guildname), member)
+    return True
 
 
-@database_required
 def unregister_guild(region, server, guildname):
-    return g['redis'].srem('guilds', 'guild:{};{};{}'.format(region, server, guildname))
+    return g['redis'].srem('guilds', 'guild:{}:{}:{}'.format(region, server, guildname))
 
 
 @client.event
