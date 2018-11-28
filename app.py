@@ -1,44 +1,34 @@
-from autoredis import AutoRedis
-import sys
+from init import g, client, BNET_APIKEY, TOKEN, LOCALE, CHANNEL_GUILD_ID, ILVL_LIMIT, REGION as APIREGION, ROLE_ALLOWED
 import discord
 import asyncio
 import requests
-
+import argparse
+from models.character import Character
 
 USAGE_MSG = 'Valid command: \n' \
             '!help: get bot usage \n' \
-            '!register <region> <server> <guildName>: Register a new guild for refresh data members\n' \
-            '!unregister <region> <server> <guildName>: Unregister a guild already register.\n' \
-            '!hello: Test if the bot works.\n'
-
-g = dict()
-
-
-TOKEN = 'NTE0ODc1MDE0NzU2MTcxNzc4.Dtc6eQ.wXWKicjAC3o_sZN76C7LLbQxKws'
-BNET_APIKEY = '76t29cs8yr7jvfaqwyz7683vq7u6fsup'
-LOCALE='fr_FR'
+            '!register <server> <guildName>: Register a new guild for refresh data members\n' \
+            '!unregister <server> <guildName>: Unregister a guild already register.\n' \
+            '!ping: Test if the bot works.\n' \
+            '!info: Get bot informations.\n' \
+            '!leavers: Get players who left guilds and dont join a new guild.\n'
 
 REGION = 1
 SERVER = 2
 GUILDNAME = 3
-
-client = discord.Client()
-
-
-try:
-    g['redis'] = AutoRedis(('127.0.0.1', 6379),
-                           password=None,
-                           db=2,
-                           decode_responses=True)
-except (ConnectionError, KeyError):
-    print('Error Database')
-    sys.exit(-1)
+LEVEL_MAX = 120
 
 
 def get_new_members(json):
     result = []
     for member in json['members']:
-        result.append(member['character']['name'])
+        member = member['character']
+        try:
+            Character.save_db(member['guild'], member['name'], member['realm'], member['level'])
+            if int(member['level']) == 120:
+                result.append(member['name'])
+        except KeyError:
+            continue
     return result
 
 
@@ -47,7 +37,7 @@ async def refresh_guilds():
     while not client.is_closed:
         print("Refreshing guilds....")
         list = g['redis'].smembers('guilds')
-        channel = discord.Object(id='516605516701630464')
+        channel = discord.Object(id=CHANNEL_GUILD_ID)
         msg = ''
         for guild in list:
             url = 'https://{}.api.battle.net/wow/guild/{}/{}?fields=members&locale={}&apikey={}'.format(
@@ -62,16 +52,23 @@ async def refresh_guilds():
             if req.status_code != 200:
                 continue
             new_members = get_new_members(req.json())
+            name = req.json()['name']
             for member in old_members:
                 if member not in new_members:
-                    msg = msg + '{} left {}\n'.format(member, guild.split(':')[3])
+                    char = Character.from_db(name, member)
+                    char = Character.refresh()
+                    if char.ilvl > int(ILVL_LIMIT):
+                        msg = msg + char.get_msg(True)
                     g['redis'].sadd('leavers', member)
-            g['redis'].delete('{}:members'.format(guild))
+                    g['redis'].srem('{}:members'.format(guild), member)
+                    char.del_db()
             for member in new_members:
                 if member not in old_members:
-                    msg = msg + '{} joined {}\n'.format(member, guild.split(':')[3])
+                    char = Character.from_db(name, member)
+                    if int(char.ilvl) > int(ILVL_LIMIT):
+                        msg = msg + char.get_msg(False)
+                        g['redis'].sadd('{}:members'.format(guild), member)
                     g['redis'].srem('leavers', member)
-                g['redis'].sadd('{}:members'.format(guild), member)
 
         print("Refreshing Done.")
         if msg != '':
@@ -84,26 +81,46 @@ async def on_message(message):
     if message.author == client.user:
         return
 
+    if message.content.startswith('!info'):
+        msg = "Hello {}\n".format(message.author.mention)
+        msg = msg + 'Region : {}\n' \
+                    'Ilvl Limit : {}\n' \
+                    'Channel : {}\n' \
+                    'Guilds registered : '.format(APIREGION,
+                                            ILVL_LIMIT,
+                                            CHANNEL_GUILD_ID)
+        for guild in g['redis'].smembers('guilds'):
+            msg = msg + '{}, '.format(guild.split(':')[3].capitalize())
+        await client.send_message(message.channel, msg)
+        return
+    allowed = False
+    for role in message.author.roles:
+        if ROLE_ALLOWED == role.id:
+            allowed = True
     g['redis'].sadd('theobot:history', message.content)
 
-    if message.content.startswith('!hello'):
-        msg = "Hello {}".format(message.author.mention)
-        await client.send_message(message.channel, msg)
-
     if message.content.startswith('!register'):
-        args = message.content.upper().split(' ', 3)
-        if len(args) != 4:
-            await client.send_message(message.channel, 'Usage: !register <region> <server> <guildName>')
-        if register_guild(args[1], args[2], args[3]):
+        if not allowed:
+            await client.send_message(message.channel, "{} : You are not allowed to do this action."
+                                      .format(message.author.mention))
+            return
+        args = message.content.capitalize().split(' ', 2)
+        if len(args) != 3:
+            await client.send_message(message.channel, 'Usage: !register <server> <guildName>')
+        if register_guild(args[1], args[2]):
             await client.send_message(message.channel, "Guild registered.")
         else:
             await client.send_message(message.channel, "Guild not exist or already registered.")
 
     if message.content.startswith('!unregister'):
-        args = message.content.upper().split(' ', 3)
-        if len(args) != 4:
-            await client.send_message(message.channel, 'Usage: !unregister <region> <server> <guildName>')
-        if register_guild(args[1], args[2], args[3]):
+        if not allowed:
+            await client.send_message(message.channel, "{} : You are not allowed to do this action."
+                                      .format(message.author.mention))
+            return
+        args = message.content.capitalize().split(' ', 2)
+        if len(args) != 3:
+            await client.send_message(message.channel, 'Usage: !unregister <server> <guildName>')
+        if register_guild(args[1], args[2]):
             await client.send_message(message.channel, "Guild unregistered.")
         else:
             await client.send_message(message.channel, "Guild not exist in database.")
@@ -117,12 +134,12 @@ async def on_message(message):
             await client.send_message(message.channel, "No leavers at the moments")
 
 
-def register_guild(region, server, guildname):
-    if g['redis'].exists('guild:{}:{}:{}:members'.format(region, server, guildname)):
-        g['redis'].sadd('guilds', 'guild:{}:{}:{}'.format(region, server, guildname))
+def register_guild(server, guildname):
+    if g['redis'].exists('guild:{}:{}:{}:members'.format(APIREGION, server, guildname)):
+        g['redis'].sadd('guilds', 'guild:{}:{}:{}'.format(APIREGION, server, guildname))
         return True
     url = 'https://{}.api.battle.net/wow/guild/{}/{}?fields=members&locale={}&apikey={}'.format(
-        region,
+        APIREGION,
         server,
         guildname,
         LOCALE,
@@ -132,14 +149,16 @@ def register_guild(region, server, guildname):
     if rq.status_code != 200:
         return False
     members = get_new_members(rq.json())
-    g['redis'].sadd('guilds', 'guild:{}:{}:{}'.format(region, server, guildname))
+    g['redis'].sadd('guilds', 'guild:{}:{}:{}'.format(APIREGION, server, guildname))
     for member in members:
-        g['redis'].sadd('guild:{}:{}:{}:members'.format(region, server, guildname), member)
+        char = Character.from_db(guildname, member)
+        if int(char.level) == LEVEL_MAX:
+            g['redis'].sadd('guild:{}:{}:{}:members'.format(APIREGION, server, guildname), member)
     return True
 
 
-def unregister_guild(region, server, guildname):
-    return g['redis'].srem('guilds', 'guild:{}:{}:{}'.format(region, server, guildname))
+def unregister_guild(server, guildname):
+    return g['redis'].srem('guilds', 'guild:{}:{}:{}'.format(APIREGION, server, guildname))
 
 
 @client.event
@@ -150,5 +169,9 @@ async def on_ready():
     print('--------')
 
 
-client.loop.create_task(refresh_guilds())
-client.run(TOKEN)
+def launch():
+    client.loop.create_task(refresh_guilds())
+    client.run(TOKEN)
+
+
+launch()
