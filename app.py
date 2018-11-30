@@ -68,9 +68,8 @@ async def refresh_guilds():
                     char.refresh()
                     if int(char.ilvl) > int(ILVL_LIMIT):
                         msg = msg + char.get_msg(False)
-                        g['redis'].sadd('{}:members'.format(guild), member)
+                    g['redis'].sadd('{}:members'.format(guild), member)
                     g['redis'].srem('leavers', member)
-
         print("Refreshing Done.")
         if msg != '':
             await client.send_message(channel, msg)
@@ -122,7 +121,7 @@ async def on_message(message):
         args = message.content.capitalize().split(' ', 2)
         if len(args) < 3:
             await client.send_message(message.channel, 'Usage: !unregister <server> <guildName>')
-        if register_guild(args[1], args[2]):
+        if unregister_guild(args[1], args[2]):
             await client.send_message(message.channel, "Guild unregistered.")
         else:
             await client.send_message(message.channel, "Guild not exist in database.")
