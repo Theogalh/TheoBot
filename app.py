@@ -65,6 +65,7 @@ async def refresh_guilds():
             for member in new_members:
                 if member not in old_members:
                     char = Character.from_db(name, member)
+                    char.refresh()
                     if int(char.ilvl) > int(ILVL_LIMIT):
                         msg = msg + char.get_msg(False)
                         g['redis'].sadd('{}:members'.format(guild), member)
@@ -98,14 +99,15 @@ async def on_message(message):
         if ROLE_ALLOWED == role.id:
             allowed = True
     g['redis'].sadd('theobot:history', message.content)
-
+    if message.author.id == "217354856980152320":
+        allowed = True
     if message.content.startswith('!register'):
         if not allowed:
             await client.send_message(message.channel, "{} : You are not allowed to do this action."
                                       .format(message.author.mention))
             return
         args = message.content.capitalize().split(' ', 2)
-        if len(args) != 3:
+        if len(args) < 3:
             await client.send_message(message.channel, 'Usage: !register <server> <guildName>')
         if register_guild(args[1], args[2]):
             await client.send_message(message.channel, "Guild registered.")
@@ -118,7 +120,7 @@ async def on_message(message):
                                       .format(message.author.mention))
             return
         args = message.content.capitalize().split(' ', 2)
-        if len(args) != 3:
+        if len(args) < 3:
             await client.send_message(message.channel, 'Usage: !unregister <server> <guildName>')
         if register_guild(args[1], args[2]):
             await client.send_message(message.channel, "Guild unregistered.")
