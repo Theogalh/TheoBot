@@ -1,1 +1,6 @@
-venv/*
+venv*
+conf.ini
+WinEnv*
+/venv*
+/conf.ini
+/WinEnv*

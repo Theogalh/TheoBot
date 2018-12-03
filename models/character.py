@@ -1,5 +1,5 @@
 import requests
-from init import g, BNET_APIKEY, LOCALE, ILVL_LIMIT, REGION
+from init import g, config
 
 CLASS = {
     1: "Warrior",
@@ -73,18 +73,18 @@ class Character:
         if index > 3:
             return 404
         url = "https://{}.api.battle.net/wow/character/{}/{}?locale={}&apikey={}".format(
-            REGION,
+            config['DEFAULT']['REGION'],
             self.server,
             self.name,
-            LOCALE,
-            BNET_APIKEY
+            config['DEFAULT']['LOCALE'],
+            config['DEFAULT']['BNET_APIKEY']
         )
         r = requests.get(url + "&fields=items")
         if r.status_code != 200:
             return self.refresh(index+1)
         r = r.json()
         self.ilvl = int(r["items"]['averageItemLevelEquipped'])
-        if self.ilvl < int(ILVL_LIMIT):
+        if self.ilvl < int(config['DEFAULT']['ILVL_LIMIT']):
             return
         self.classe = CLASS[int(r["class"])]
         self.race = RACE[int(r["race"])]

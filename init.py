@@ -2,6 +2,7 @@ from autoredis import AutoRedis
 import sys
 import discord
 import configparser
+import argparse
 
 g = dict()
 
@@ -10,15 +11,6 @@ config = configparser.ConfigParser()
 if not config.read('conf.ini'):
     print("Error, no conf file.")
     sys.exit(1)
-
-
-LOCALE='fr_FR'
-BNET_APIKEY = config['DEFAULT']['BNET_APIKEY']
-TOKEN = config['DEFAULT']['DISCORD_TOKEN']
-CHANNEL_GUILD_ID = config['DEFAULT']['CHANNEL_GUILD_ID']
-ILVL_LIMIT = config['DEFAULT']['ILVL_LIMIT']
-REGION = config['DEFAULT']['REGION']
-ROLE_ALLOWED = config['DEFAULT']['ROLE_ALLOWED']
 
 client = discord.Client()
 
@@ -30,3 +22,17 @@ try:
 except (ConnectionError, KeyError):
     print('Error Database')
     sys.exit(-1)
+
+
+class ArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        raise ValueError(message)
+
+    def _print_message(self, message=None, file=None):
+        if message:
+            raise ValueError(message)
+
+    def exit(self, status=0, message=None):
+        print('TEST')
+        print(message)
+        pass
